@@ -19,14 +19,14 @@ jobs:
           mkdir -p $HOME/.minikube/profiles/minikube
 
           # Decode and save Kubeconfig
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
           export KUBECONFIG=$HOME/.kube/config
 
           # Decode and save Minikube certificates
-          echo "${{ secrets.MINIKUBE_CLIENT_CRT }}" | base64 --decode > $HOME/.minikube/profiles/minikube/client.crt
-          echo "${{ secrets.MINIKUBE_CLIENT_KEY }}" | base64 --decode > $HOME/.minikube/profiles/minikube/client.key
-          echo "${{ secrets.MINIKUBE_CA_CRT }}" | base64 --decode > $HOME/.minikube/ca.crt
+          echo "${{ secrets.MINIKUBE_CLIENT_CRT }}" | base64 -d > $HOME/.minikube/profiles/minikube/client.crt
+          echo "${{ secrets.MINIKUBE_CLIENT_KEY }}" | base64 -d > $HOME/.minikube/profiles/minikube/client.key
+          echo "${{ secrets.MINIKUBE_CA_CRT }}" | base64 -d > $HOME/.minikube/ca.crt
 
           chmod 600 $HOME/.minikube/profiles/minikube/client.*
           chmod 600 $HOME/.minikube/ca.crt
