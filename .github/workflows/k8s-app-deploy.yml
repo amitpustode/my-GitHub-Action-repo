@@ -1,4 +1,4 @@
-name: Deploy to Minikube
+name: Deploy application to Minikube
 
 on:
   push:
@@ -13,12 +13,20 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Configure kubectl for Minikube
+      - name: Install Minikube
         run: |
-          mkdir -p $HOME/.kube
-          mkdir -p $HOME/.minikube
-          sudo cp -r /root/.kube /root/.minikube $HOME/
-          sudo chown -R $USER $HOME/.kube $HOME/.minikube
+          curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+          sudo install minikube-linux-amd64 /usr/local/bin/minikube
+
+      - name: Start Minikube
+        run: |
+          minikube start --driver=docker
+
+      - name: Set up kubectl
+        run: |
+          echo "Setting up kubectl"
+          kubectl version --client
+          kubectl config use-context minikube
           kubectl cluster-info
 
       - name: Apply Namespace
