@@ -15,22 +15,34 @@ jobs:
 
       - name: Set Up Minikube Kubeconfig and Certificates
         run: |
+          echo "🏗️ Setting up Minikube kubeconfig and certificates..."
+
+          # Create necessary directories
           mkdir -p $HOME/.kube
           mkdir -p $HOME/.minikube/profiles/minikube
+          mkdir -p $HOME/.minikube/certs
 
-          # Decode and save Kubeconfig
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 -d > $HOME/.kube/config
+          # Decode and store Kubeconfig
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
           export KUBECONFIG=$HOME/.kube/config
 
-          # Decode and save Minikube certificates
-          echo "${{ secrets.MINIKUBE_CLIENT_CRT }}" | base64 -d > $HOME/.minikube/profiles/minikube/client.crt
-          echo "${{ secrets.MINIKUBE_CLIENT_KEY }}" | base64 -d > $HOME/.minikube/profiles/minikube/client.key
-          echo "${{ secrets.MINIKUBE_CA_CRT }}" | base64 -d > $HOME/.minikube/ca.crt
+          # Decode and store Minikube certificates
+          echo "${{ secrets.MINIKUBE_CLIENT_CRT }}" | base64 --decode > $HOME/.minikube/profiles/minikube/client.crt
+          echo "${{ secrets.MINIKUBE_CLIENT_KEY }}" | base64 --decode > $HOME/.minikube/profiles/minikube/client.key
+          echo "${{ secrets.MINIKUBE_CA_CRT }}" | base64 --decode > $HOME/.minikube/ca.crt
 
-          chmod 600 $HOME/.minikube/profiles/minikube/client.*
+          # Set correct permissions
+          chmod 600 $HOME/.minikube/profiles/minikube/client.crt
+          chmod 600 $HOME/.minikube/profiles/minikube/client.key
           chmod 600 $HOME/.minikube/ca.crt
 
+          # Debugging - Check if files exist
+          echo "🔍 Checking Minikube certificate files..."
+          ls -l $HOME/.minikube/profiles/minikube
+          ls -l $HOME/.minikube/
+
+          echo "✅ Kubeconfig and certificates are set up."
           kubectl cluster-info
 
       - name: Apply Namespace
