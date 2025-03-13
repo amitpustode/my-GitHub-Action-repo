@@ -1,0 +1,42 @@
+name: Deploy to Minikube
+
+on:
+  push:
+    branches:
+      - main  # Change this to your deployment branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure kubectl for Minikube
+        run: |
+          mkdir -p $HOME/.kube
+          mkdir -p $HOME/.minikube
+          sudo cp -r /root/.kube /root/.minikube $HOME/
+          sudo chown -R $USER $HOME/.kube $HOME/.minikube
+          kubectl cluster-info
+
+      - name: Apply Namespace
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+
+      - name: Build and Tag Docker Image inside Minikube
+        run: |
+          eval $(minikube docker-env)
+          docker build -t my-app:latest .
+
+      - name: Apply Kubernetes Manifests
+        run: |
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+
+      - name: Verify Deployment
+        run: kubectl get pods -n my-namespace
+
+      - name: Get Minikube Service URL
+        run: minikube service my-app -n my-namespace --url
