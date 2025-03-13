@@ -1,18 +1,3 @@
-name: Deploy to Existing Minikube
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
       - name: Set Up Minikube Kubeconfig and Certificates
         run: |
           echo "🏗️ Setting up Minikube kubeconfig and certificates..."
@@ -22,12 +7,7 @@ jobs:
           mkdir -p $HOME/.minikube/profiles/minikube
           mkdir -p $HOME/.minikube/certs
 
-          # Decode and store Kubeconfig
-          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
-          chmod 600 $HOME/.kube/config
-          export KUBECONFIG=$HOME/.kube/config
-
-          # Decode and store Minikube certificates
+          # Decode and save Minikube certificates
           echo "${{ secrets.MINIKUBE_CLIENT_CRT }}" | base64 --decode > $HOME/.minikube/profiles/minikube/client.crt
           echo "${{ secrets.MINIKUBE_CLIENT_KEY }}" | base64 --decode > $HOME/.minikube/profiles/minikube/client.key
           echo "${{ secrets.MINIKUBE_CA_CRT }}" | base64 --decode > $HOME/.minikube/ca.crt
@@ -42,24 +22,16 @@ jobs:
           ls -l $HOME/.minikube/profiles/minikube
           ls -l $HOME/.minikube/
 
-          echo "✅ Kubeconfig and certificates are set up."
+          echo "✅ Updating Kubeconfig to use correct paths..."
+          
+          # Decode and fix kubeconfig paths
+          echo "${{ secrets.KUBECONFIG_DATA }}" | base64 --decode > $HOME/.kube/config
+          
+          # Replace the wrong path "/home/amit/" with the correct GitHub runner home path
+          sed -i "s|/home/amit/.minikube|$HOME/.minikube|g" $HOME/.kube/config
+
+          chmod 600 $HOME/.kube/config
+          export KUBECONFIG=$HOME/.kube/config
+
+          echo "✅ Kubeconfig is fixed. Running cluster-info..."
           kubectl cluster-info
-
-      - name: Apply Namespace
-        run: kubectl apply -f k8s/namespace.yaml
-
-      - name: Build and Tag Docker Image inside Minikube
-        run: |
-          eval $(minikube docker-env)
-          docker build -t my-app:latest .
-
-      - name: Apply Kubernetes Manifests
-        run: |
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-
-      - name: Verify Deployment
-        run: kubectl get pods -n my-namespace
-
-      - name: Get Minikube Service URL
-        run: minikube service my-app -n my-namespace --url
