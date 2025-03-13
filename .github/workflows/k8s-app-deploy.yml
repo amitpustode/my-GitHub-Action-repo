@@ -3,7 +3,7 @@ name: Deploy to Existing Minikube
 on:
   push:
     branches:
-      - main  # Change this to your deployment branch
+      - main
 
 jobs:
   deploy:
@@ -16,14 +16,25 @@ jobs:
       - name: Set Up Kubeconfig
         run: |
           mkdir -p $HOME/.kube
+          mkdir -p $HOME/.minikube/profiles/minikube
+
+          # Decode and save Minikube certificates
+          echo "${{ secrets.MINIKUBE_CLIENT_CRT }}" | base64 -d > $HOME/.minikube/profiles/minikube/client.crt
+          echo "${{ secrets.MINIKUBE_CLIENT_KEY }}" | base64 -d > $HOME/.minikube/profiles/minikube/client.key
+          echo "${{ secrets.MINIKUBE_CA_CRT }}" | base64 -d > $HOME/.minikube/ca.crt
+
+          chmod 600 $HOME/.minikube/profiles/minikube/client.*
+          chmod 600 $HOME/.minikube/ca.crt
+
+          # Load Kubeconfig from Secret
           echo "${{ secrets.KUBECONFIG_DATA }}" > $HOME/.kube/config
           chmod 600 $HOME/.kube/config
+          
           export KUBECONFIG=$HOME/.kube/config
           kubectl cluster-info
 
       - name: Apply Namespace
-        run: |
-          kubectl apply -f k8s/namespace.yaml
+        run: kubectl apply -f k8s/namespace.yaml
 
       - name: Build and Tag Docker Image inside Minikube
         run: |
