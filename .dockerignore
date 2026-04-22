@@ -1,0 +1,6 @@
+# Git metadata
+.git
+.gitignore
+
+# GitHub Actions / CI
+.github
