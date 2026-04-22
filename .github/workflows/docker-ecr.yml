@@ -52,7 +52,7 @@ jobs:
     env:
       AWS_REGION: us-east-1
       ECS_CLUSTER: my-ecs-cluster
-      ECS_SERVICE: my-ecs-service
+      ECS_SERVICE: nginx-service
 
     steps:
       - name: Configure AWS Credentials
