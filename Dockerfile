@@ -5,6 +5,6 @@ WORKDIR /app
 # Copy application files
 COPY . .
 # Add a sample line (e.g., create a text file)
-RUN echo "This is a sample file created inside the Docker container using GitHub Action Workflow." > sample.txt
+RUN echo "This is a the sample file created inside the Docker container using GitHub Action Workflow." > sample.txt
 # Default command
 CMD ["echo", "Hello from Docker!"]
