@@ -1,10 +1,22 @@
-# Use an official Python image
-FROM python:3.9-slim
-# Set working directory
-WORKDIR /app
-# Copy application files
-COPY . .
-# Add a sample line (e.g., create a text file)
-RUN echo "This is a the sample file created inside the Docker container using GitHub Action Workflow." > sample.txt
-# Default command
-CMD ["echo", "Hello from Docker!"]
+# Use official Nginx image
+FROM nginx:latest
+
+# Remove default nginx page
+RUN rm -rf /usr/share/nginx/html/*
+
+# Create custom index page with banner message
+RUN echo '<!DOCTYPE html>\
+<html>\
+<head><title>Welcome</title></head>\
+<body style="text-align:center; font-family:Arial; margin-top:100px;">\
+<h1>🚀 Welcome to My ECS Nginx Container 🚀</h1>\
+<h2>Deployed using Docker + ECS</h2>\
+<p>This is a custom banner page.</p>\
+</body>\
+</html>' > /usr/share/nginx/html/index.html
+
+# Expose port 80
+EXPOSE 80
+
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
