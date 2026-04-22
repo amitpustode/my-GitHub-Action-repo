@@ -9,7 +9,7 @@ RUN echo '<!DOCTYPE html>\
 <html>\
 <head><title>Welcome</title></head>\
 <body style="text-align:center; font-family:Arial; margin-top:100px;">\
-<h1> Welcome to My Updated ECS Nginx Container </h1>\
+<h1> Welcome to My Updated ECS Nginx Container Created by DevOps </h1>\
 <h2>Deployed using Docker + ECS</h2>\
 <p>This is a custom banner page.</p>\
 </body>\
