@@ -9,8 +9,12 @@ jobs:
   docker:
     runs-on: ubuntu-latest
 
-    steps:
+    env:
+      AWS_REGION: us-east-1
+      IMAGE_NAME: nginx-test
+      ECR_REPOSITORY: public.ecr.aws/w7d0i3d5/my-public-acr/nginx-test
 
+    steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -19,21 +23,22 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to AWS Public ECR
         run: |
-          aws ecr-public get-login-password --region us-east-1 | \
-          docker login --username AWS --password-stdin public.ecr.aws
+          aws ecr-public get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin public.ecr.aws
 
       - name: Build Docker Image
         run: |
-          docker build -t nginx-test .
+          docker build -t $IMAGE_NAME .
 
-      - name: Tag Docker Image
+      - name: Tag Image
         run: |
-          docker tag nginx-test:latest public.ecr.aws/w7d0i3d5/my-public-acr/nginx-test:latest
+          docker tag $IMAGE_NAME:latest $ECR_REPOSITORY:latest
+          docker tag $IMAGE_NAME:latest $ECR_REPOSITORY:${{ github.run_number }}
 
-      - name: Push Docker Image
+      - name: Push Image
         run: |
-          docker push public.ecr.aws/w7d0i3d5/my-public-acr/nginx-test:latest
+          docker push $ECR_REPOSITORY:latest
+          docker push $ECR_REPOSITORY:${{ github.run_number }}
