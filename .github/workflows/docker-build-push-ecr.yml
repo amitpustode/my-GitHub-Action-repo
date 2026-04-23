@@ -70,10 +70,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - service: cake-backend-service
-          - service: cake-frontend-service
-          - service: cake-pda-service
-          - service: cake-scia-service
+          - service: cake-backend-task-service
+          - service: cake-frontend-task-service
+          - service: cake-pda-task-service
+          - service: cake-scia-agent-task-service
   
     env:
       AWS_REGION: us-east-1
@@ -86,6 +86,9 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: List ECS Services
+        run: aws ecs list-services --cluster $ECS_CLUSTER
   
       - name: Force New Deployment
         run: |
