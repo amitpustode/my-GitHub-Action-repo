@@ -8,8 +8,9 @@ on:
 jobs:
 
 ###############################################################################
-# JOB 1 - BUILD & PUSH IMAGES
+# JOB 1 - BUILD & PUSH DOCKER IMAGES
 ###############################################################################
+
   docker:
     name: Build-and-Push-All-Images
     runs-on: ubuntu-latest
@@ -37,6 +38,7 @@ jobs:
             repository: public.ecr.aws/w7d0i3d5/cake/scia-agent
 
     steps:
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -49,26 +51,41 @@ jobs:
 
       - name: Login Public ECR
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Logging into AWS Public ECR..."
           aws ecr-public get-login-password --region $AWS_REGION \
           | docker login --username AWS --password-stdin public.ecr.aws
+          echo -e "\033[1;32m[SUCCESS]\033[0m Login successful"
 
       - name: Build Image
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Building image: ${{ matrix.name }}"
           docker build -t ${{ matrix.name }} ./${{ matrix.folder }}
+          echo -e "\033[1;32m[SUCCESS]\033[0m Build completed"
 
       - name: Tag Image
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Tagging image..."
           docker tag ${{ matrix.name }}:latest ${{ matrix.repository }}:latest
           docker tag ${{ matrix.name }}:latest ${{ matrix.repository }}:${{ github.run_number }}
 
       - name: Push Image
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Pushing image to ECR..."
           docker push ${{ matrix.repository }}:latest
           docker push ${{ matrix.repository }}:${{ github.run_number }}
+          echo -e "\033[1;32m[SUCCESS]\033[0m Image pushed successfully"
+
+      - name: Job Summary
+        run: |
+          echo "## Docker Image Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: ${{ matrix.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Repository: ${{ matrix.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: Success" >> $GITHUB_STEP_SUMMARY
 
 ###############################################################################
-# JOB 2 - ECS DEPLOY
+# JOB 2 - ECS DEPLOYMENT
 ###############################################################################
+
   deploy:
     name: Create-SG-Task-Service-Deploy
     runs-on: ubuntu-latest
@@ -78,13 +95,13 @@ jobs:
       AWS_REGION: us-east-1
       ECS_CLUSTER: my-ecs-cluster
       VPC_ID: vpc-073aa5721affff3f6
-
       SUBNET_1: subnet-0c31aad618d7831aa
       SUBNET_2: subnet-0b7b9781a76282097
 
     strategy:
       matrix:
         include:
+
           - family: cake-backend-task
             container: cake-backend
             image: public.ecr.aws/w7d0i3d5/cake/backend:latest
@@ -122,6 +139,7 @@ jobs:
             sg_name: my-sg-cake-scia
 
     steps:
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -130,125 +148,135 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 ###############################################################################
-# CHECK / CREATE SECURITY GROUP
+# SECURITY GROUP
 ###############################################################################
+
       - name: Check Security Group
         id: sgcheck
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Checking Security Group..."
           SG_ID=$(aws ec2 describe-security-groups \
-            --filters Name=group-name,Values=${{ matrix.sg_name }} Name=vpc-id,Values=$VPC_ID \
-            --query 'SecurityGroups[0].GroupId' \
-            --output text)
+          --filters Name=group-name,Values=${{ matrix.sg_name }} Name=vpc-id,Values=$VPC_ID \
+          --query 'SecurityGroups[0].GroupId' \
+          --output text)
 
-          if [ "$SG_ID" = "None" ] || [ -z "$SG_ID" ]; then
+          if [ "$SG_ID" = "None" ]; then
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo -e "\033[1;33m[WARNING]\033[0m Security Group not found"
           else
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
+            echo -e "\033[1;32m[SUCCESS]\033[0m Security Group already exists: $SG_ID"
           fi
 
       - name: Create Security Group
         if: steps.sgcheck.outputs.exists == 'false'
         id: createsg
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Creating Security Group..."
           NEW_SG=$(aws ec2 create-security-group \
-            --group-name ${{ matrix.sg_name }} \
-            --description "${{ matrix.sg_name }}" \
-            --vpc-id $VPC_ID \
-            --query 'GroupId' \
-            --output text)
+          --group-name ${{ matrix.sg_name }} \
+          --description "${{ matrix.sg_name }}" \
+          --vpc-id $VPC_ID \
+          --query 'GroupId' \
+          --output text)
 
           aws ec2 authorize-security-group-ingress \
-            --group-id $NEW_SG \
-            --protocol tcp \
-            --port ${{ matrix.port }} \
-            --cidr 0.0.0.0/0
+          --group-id $NEW_SG \
+          --protocol tcp \
+          --port ${{ matrix.port }} \
+          --cidr 0.0.0.0/0
 
           echo "sg_id=$NEW_SG" >> $GITHUB_OUTPUT
-
-      - name: Final SG ID
-        id: finalsg
-        run: |
-          if [ "${{ steps.sgcheck.outputs.exists }}" = "true" ]; then
-            echo "sg_id=${{ steps.sgcheck.outputs.sg_id }}" >> $GITHUB_OUTPUT
-          else
-            echo "sg_id=${{ steps.createsg.outputs.sg_id }}" >> $GITHUB_OUTPUT
-          fi
+          echo -e "\033[1;32m[SUCCESS]\033[0m Security Group created: $NEW_SG"
 
 ###############################################################################
-# REGISTER TASK DEFINITION
+# TASK DEFINITION
 ###############################################################################
+
       - name: Register Task Definition
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Registering Task Definition..."
           aws ecs register-task-definition \
-            --family ${{ matrix.family }} \
-            --network-mode awsvpc \
-            --requires-compatibilities FARGATE \
-            --cpu ${{ matrix.cpu }} \
-            --memory ${{ matrix.memory }} \
-            --runtime-platform operatingSystemFamily=LINUX,cpuArchitecture=X86_64 \
-            --container-definitions "[
-              {
-                \"name\":\"${{ matrix.container }}\",
-                \"image\":\"${{ matrix.image }}\",
-                \"essential\":true,
-                \"portMappings\":[
-                  {
-                    \"containerPort\":${{ matrix.port }},
-                    \"hostPort\":${{ matrix.port }},
-                    \"protocol\":\"tcp\",
-                    \"appProtocol\":\"http\"
-                  }
-                ]
-              }
-            ]"
+          --family ${{ matrix.family }} \
+          --network-mode awsvpc \
+          --requires-compatibilities FARGATE \
+          --cpu ${{ matrix.cpu }} \
+          --memory ${{ matrix.memory }} \
+          --runtime-platform operatingSystemFamily=LINUX,cpuArchitecture=X86_64 \
+          --container-definitions "[{
+            \"name\":\"${{ matrix.container }}\",
+            \"image\":\"${{ matrix.image }}\",
+            \"essential\":true,
+            \"portMappings\":[{
+              \"containerPort\":${{ matrix.port }},
+              \"hostPort\":${{ matrix.port }},
+              \"protocol\":\"tcp\"
+            }]
+          }]"
+          echo -e "\033[1;32m[SUCCESS]\033[0m Task Definition Registered"
 
 ###############################################################################
-# CHECK ECS SERVICE
+# SERVICE CHECK
 ###############################################################################
+
       - name: Check ECS Service
         id: svc
         run: |
           STATUS=$(aws ecs describe-services \
-            --cluster $ECS_CLUSTER \
-            --services ${{ matrix.service }} \
-            --query 'services[0].status' \
-            --output text 2>/dev/null)
+          --cluster $ECS_CLUSTER \
+          --services ${{ matrix.service }} \
+          --query 'services[0].status' \
+          --output text 2>/dev/null)
 
-          if [ -z "$STATUS" ] || [ "$STATUS" = "None" ] || [ "$STATUS" = "INACTIVE" ]; then
-            STATUS="MISSING"
+          if [ "$STATUS" = "ACTIVE" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo -e "\033[1;32m[SUCCESS]\033[0m ECS Service exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo -e "\033[1;33m[WARNING]\033[0m ECS Service not found"
           fi
-
-          echo "status=$STATUS" >> $GITHUB_OUTPUT
-          echo "Detected status: $STATUS"
 
 ###############################################################################
 # CREATE ECS SERVICE
 ###############################################################################
+
       - name: Create ECS Service
-        if: steps.svc.outputs.status == 'MISSING'
+        if: steps.svc.outputs.exists == 'false'
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Creating ECS Service..."
           aws ecs create-service \
-            --cluster $ECS_CLUSTER \
-            --service-name ${{ matrix.service }} \
-            --task-definition ${{ matrix.family }} \
-            --desired-count 1 \
-            --launch-type FARGATE \
-            --platform-version LATEST \
-            --network-configuration "awsvpcConfiguration={
-              subnets=[$SUBNET_1,$SUBNET_2],
-              securityGroups=[${{ steps.finalsg.outputs.sg_id }}],
-              assignPublicIp=ENABLED
-            }"
+          --cluster $ECS_CLUSTER \
+          --service-name ${{ matrix.service }} \
+          --task-definition ${{ matrix.family }} \
+          --desired-count 1 \
+          --launch-type FARGATE \
+          --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2],assignPublicIp=ENABLED}"
+          echo -e "\033[1;32m[SUCCESS]\033[0m ECS Service Created"
 
 ###############################################################################
 # UPDATE ECS SERVICE
 ###############################################################################
+
       - name: Update ECS Service
-        if: steps.svc.outputs.status == 'ACTIVE'
+        if: steps.svc.outputs.exists == 'true'
         run: |
+          echo -e "\033[1;34m[INFO]\033[0m Updating ECS Service..."
           aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service ${{ matrix.service }} \
-            --task-definition ${{ matrix.family }} \
-            --force-new-deployment
+          --cluster $ECS_CLUSTER \
+          --service ${{ matrix.service }} \
+          --task-definition ${{ matrix.family }} \
+          --force-new-deployment
+          echo -e "\033[1;32m[SUCCESS]\033[0m ECS Service Updated"
+
+###############################################################################
+# FINAL SUMMARY
+###############################################################################
+
+      - name: Deployment Summary
+        run: |
+          echo "## ECS Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Service: ${{ matrix.service }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Task Definition: ${{ matrix.family }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Image: ${{ matrix.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: Success" >> $GITHUB_STEP_SUMMARY
