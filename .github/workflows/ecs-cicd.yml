@@ -10,7 +10,6 @@ jobs:
 ###############################################################################
 # JOB 1 - BUILD & PUSH IMAGES
 ###############################################################################
-
   docker:
     name: Build-and-Push-All-Images
     runs-on: ubuntu-latest
@@ -38,9 +37,11 @@ jobs:
             repository: public.ecr.aws/w7d0i3d5/cake/scia-agent
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -52,7 +53,8 @@ jobs:
           | docker login --username AWS --password-stdin public.ecr.aws
 
       - name: Build Image
-        run: docker build -t ${{ matrix.name }} ./${{ matrix.folder }}
+        run: |
+          docker build -t ${{ matrix.name }} ./${{ matrix.folder }}
 
       - name: Tag Image
         run: |
@@ -67,7 +69,6 @@ jobs:
 ###############################################################################
 # JOB 2 - ECS DEPLOY
 ###############################################################################
-
   deploy:
     name: Create-SG-Task-Service-Deploy
     runs-on: ubuntu-latest
@@ -84,7 +85,6 @@ jobs:
     strategy:
       matrix:
         include:
-
           - family: cake-backend-task
             container: cake-backend
             image: public.ecr.aws/w7d0i3d5/cake/backend:latest
@@ -122,8 +122,8 @@ jobs:
             sg_name: my-sg-cake-scia
 
     steps:
-
-      - uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -132,7 +132,6 @@ jobs:
 ###############################################################################
 # CHECK / CREATE SECURITY GROUP
 ###############################################################################
-
       - name: Check Security Group
         id: sgcheck
         run: |
@@ -141,7 +140,7 @@ jobs:
             --query 'SecurityGroups[0].GroupId' \
             --output text)
 
-          if [ "$SG_ID" = "None" ]; then
+          if [ "$SG_ID" = "None" ] || [ -z "$SG_ID" ]; then
             echo "exists=false" >> $GITHUB_OUTPUT
           else
             echo "exists=true" >> $GITHUB_OUTPUT
@@ -167,7 +166,7 @@ jobs:
 
           echo "sg_id=$NEW_SG" >> $GITHUB_OUTPUT
 
-      - name: Set SG ID
+      - name: Final SG ID
         id: finalsg
         run: |
           if [ "${{ steps.sgcheck.outputs.exists }}" = "true" ]; then
@@ -179,7 +178,6 @@ jobs:
 ###############################################################################
 # REGISTER TASK DEFINITION
 ###############################################################################
-
       - name: Register Task Definition
         run: |
           aws ecs register-task-definition \
@@ -206,9 +204,8 @@ jobs:
             ]"
 
 ###############################################################################
-# CHECK ECS SERVICE (FIXED)
+# CHECK ECS SERVICE
 ###############################################################################
-
       - name: Check ECS Service
         id: svc
         run: |
@@ -216,14 +213,18 @@ jobs:
             --cluster $ECS_CLUSTER \
             --services ${{ matrix.service }} \
             --query 'services[0].status' \
-            --output text 2>/dev/null || echo "MISSING")
+            --output text 2>/dev/null)
+
+          if [ -z "$STATUS" ] || [ "$STATUS" = "None" ] || [ "$STATUS" = "INACTIVE" ]; then
+            STATUS="MISSING"
+          fi
 
           echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "Detected status: $STATUS"
 
 ###############################################################################
 # CREATE ECS SERVICE
 ###############################################################################
-
       - name: Create ECS Service
         if: steps.svc.outputs.status == 'MISSING'
         run: |
@@ -243,7 +244,6 @@ jobs:
 ###############################################################################
 # UPDATE ECS SERVICE
 ###############################################################################
-
       - name: Update ECS Service
         if: steps.svc.outputs.status == 'ACTIVE'
         run: |
