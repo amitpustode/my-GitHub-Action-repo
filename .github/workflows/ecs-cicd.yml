@@ -48,13 +48,13 @@ jobs:
 
       - name: Login Public ECR
         run: |
-          echo -e "\033[1;34m[INFO]\033[0m Logging into Public ECR"
+          echo "[INFO] Logging into Public ECR..."
           aws ecr-public get-login-password --region $AWS_REGION \
           | docker login --username AWS --password-stdin public.ecr.aws
 
       - name: Build Image
         run: |
-          echo -e "\033[1;34m[INFO]\033[0m Building ${{ matrix.name }}"
+          echo "[INFO] Building image ${{ matrix.name }}"
           docker build -t ${{ matrix.name }} ./${{ matrix.folder }}
 
       - name: Tag Image
@@ -64,11 +64,13 @@ jobs:
 
       - name: Push Image
         run: |
+          echo "[INFO] Pushing image ${{ matrix.name }}"
           docker push ${{ matrix.repository }}:latest
           docker push ${{ matrix.repository }}:${{ github.run_number }}
+          echo "[SUCCESS] Image pushed: ${{ matrix.repository }}"
 
 ###############################################################################
-# JOB 2 - ECS DEPLOY
+# JOB 2 - DEPLOY
 ###############################################################################
 
   deploy:
@@ -132,68 +134,41 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
 ###############################################################################
-# VERIFY REQUIRED RESOURCES
+# VERIFY BASE RESOURCES
 ###############################################################################
 
       - name: Verify ECS Cluster
         run: |
-          echo -e "\033[1;34m[INFO]\033[0m Checking ECS Cluster..."
+          echo "[INFO] Checking ECS Cluster: $ECS_CLUSTER"
           STATUS=$(aws ecs describe-clusters \
             --clusters $ECS_CLUSTER \
             --query 'clusters[0].status' \
             --output text)
 
           if [ "$STATUS" = "ACTIVE" ]; then
-            echo -e "\033[1;32m[SUCCESS]\033[0m ECS Cluster exists: $ECS_CLUSTER"
+            echo "[SUCCESS] ECS Cluster exists: $ECS_CLUSTER"
           else
-            echo -e "\033[1;31m[ERROR]\033[0m ECS Cluster not found"
+            echo "[ERROR] ECS Cluster not found: $ECS_CLUSTER"
             exit 1
           fi
 
       - name: Verify VPC
         run: |
-          echo -e "\033[1;34m[INFO]\033[0m Checking VPC..."
-          VPC=$(aws ec2 describe-vpcs \
-            --vpc-ids $VPC_ID \
-            --query 'Vpcs[0].VpcId' \
-            --output text)
-
-          if [ "$VPC" = "$VPC_ID" ]; then
-            echo -e "\033[1;32m[SUCCESS]\033[0m VPC exists: $VPC_ID"
-          else
-            echo -e "\033[1;31m[ERROR]\033[0m VPC not found"
-            exit 1
-          fi
+          echo "[INFO] Checking VPC: $VPC_ID"
+          aws ec2 describe-vpcs --vpc-ids $VPC_ID >/dev/null
+          echo "[SUCCESS] VPC exists: $VPC_ID"
 
       - name: Verify Subnet 1
         run: |
-          echo -e "\033[1;34m[INFO]\033[0m Checking Subnet 1..."
-          SUBNET=$(aws ec2 describe-subnets \
-            --subnet-ids $SUBNET_ID_1 \
-            --query 'Subnets[0].SubnetId' \
-            --output text)
-
-          if [ "$SUBNET" = "$SUBNET_ID_1" ]; then
-            echo -e "\033[1;32m[SUCCESS]\033[0m Subnet exists: $SUBNET_ID_1"
-          else
-            echo -e "\033[1;31m[ERROR]\033[0m Subnet not found"
-            exit 1
-          fi
+          echo "[INFO] Checking Subnet: $SUBNET_ID_1"
+          aws ec2 describe-subnets --subnet-ids $SUBNET_ID_1 >/dev/null
+          echo "[SUCCESS] Subnet exists: $SUBNET_ID_1"
 
       - name: Verify Subnet 2
         run: |
-          echo -e "\033[1;34m[INFO]\033[0m Checking Subnet 2..."
-          SUBNET=$(aws ec2 describe-subnets \
-            --subnet-ids $SUBNET_ID_2 \
-            --query 'Subnets[0].SubnetId' \
-            --output text)
-
-          if [ "$SUBNET" = "$SUBNET_ID_2" ]; then
-            echo -e "\033[1;32m[SUCCESS]\033[0m Subnet exists: $SUBNET_ID_2"
-          else
-            echo -e "\033[1;31m[ERROR]\033[0m Subnet not found"
-            exit 1
-          fi
+          echo "[INFO] Checking Subnet: $SUBNET_ID_2"
+          aws ec2 describe-subnets --subnet-ids $SUBNET_ID_2 >/dev/null
+          echo "[SUCCESS] Subnet exists: $SUBNET_ID_2"
 
 ###############################################################################
 # SECURITY GROUP
@@ -202,6 +177,8 @@ jobs:
       - name: Check Security Group
         id: sgcheck
         run: |
+          echo "[INFO] Checking Security Group: ${{ matrix.sg_name }}"
+
           SG_ID=$(aws ec2 describe-security-groups \
             --filters Name=group-name,Values=${{ matrix.sg_name }} Name=vpc-id,Values=$VPC_ID \
             --query 'SecurityGroups[0].GroupId' \
@@ -209,18 +186,18 @@ jobs:
 
           if [ "$SG_ID" = "None" ]; then
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo -e "\033[1;33m[WARNING]\033[0m Security Group not exists"
+            echo "[WARNING] Security Group not found: ${{ matrix.sg_name }}"
           else
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
-            echo -e "\033[1;32m[SUCCESS]\033[0m Security Group already exists"
+            echo "[SUCCESS] Security Group exists: ${{ matrix.sg_name }} ($SG_ID)"
           fi
 
       - name: Create Security Group
         if: steps.sgcheck.outputs.exists == 'false'
         id: createsg
         run: |
-          echo -e "\033[1;34m[INFO]\033[0m Creating Security Group..."
+          echo "[INFO] Creating Security Group: ${{ matrix.sg_name }}"
 
           NEW_SG=$(aws ec2 create-security-group \
             --group-name ${{ matrix.sg_name }} \
@@ -236,9 +213,10 @@ jobs:
             --cidr 0.0.0.0/0
 
           echo "sg_id=$NEW_SG" >> $GITHUB_OUTPUT
+          echo "[SUCCESS] Security Group created: ${{ matrix.sg_name }} ($NEW_SG)"
 
 ###############################################################################
-# FINAL SG
+# FINAL SG ID
 ###############################################################################
 
       - name: Set SG ID
@@ -251,11 +229,13 @@ jobs:
           fi
 
 ###############################################################################
-# REGISTER TASK DEF
+# TASK DEFINITION
 ###############################################################################
 
       - name: Register Task Definition
         run: |
+          echo "[INFO] Registering Task Definition: ${{ matrix.family }}"
+
           aws ecs register-task-definition \
             --family ${{ matrix.family }} \
             --network-mode awsvpc \
@@ -274,13 +254,17 @@ jobs:
               }]
             }]"
 
+          echo "[SUCCESS] Task Definition registered: ${{ matrix.family }}"
+
 ###############################################################################
-# CHECK SERVICE
+# SERVICE CHECK
 ###############################################################################
 
       - name: Check ECS Service
         id: svc
         run: |
+          echo "[INFO] Checking ECS Service: ${{ matrix.service }}"
+
           STATUS=$(aws ecs describe-services \
             --cluster $ECS_CLUSTER \
             --services ${{ matrix.service }} \
@@ -289,8 +273,10 @@ jobs:
 
           if [ "$STATUS" = "ACTIVE" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
+            echo "[SUCCESS] ECS Service exists: ${{ matrix.service }}"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
+            echo "[WARNING] ECS Service not found: ${{ matrix.service }}"
           fi
 
 ###############################################################################
@@ -300,6 +286,8 @@ jobs:
       - name: Create ECS Service
         if: steps.svc.outputs.exists == 'false'
         run: |
+          echo "[INFO] Creating ECS Service: ${{ matrix.service }}"
+
           aws ecs create-service \
             --cluster $ECS_CLUSTER \
             --service-name ${{ matrix.service }} \
@@ -312,6 +300,8 @@ jobs:
               assignPublicIp=ENABLED
             }"
 
+          echo "[SUCCESS] ECS Service created: ${{ matrix.service }}"
+
 ###############################################################################
 # UPDATE SERVICE
 ###############################################################################
@@ -319,8 +309,12 @@ jobs:
       - name: Update ECS Service
         if: steps.svc.outputs.exists == 'true'
         run: |
+          echo "[INFO] Updating ECS Service: ${{ matrix.service }}"
+
           aws ecs update-service \
             --cluster $ECS_CLUSTER \
             --service ${{ matrix.service }} \
             --task-definition ${{ matrix.family }} \
             --force-new-deployment
+
+          echo "[SUCCESS] ECS Service updated: ${{ matrix.service }}"
