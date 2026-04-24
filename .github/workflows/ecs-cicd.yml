@@ -1,0 +1,257 @@
+name: Build Push Create ECS Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+
+###############################################################################
+# JOB 1 - BUILD & PUSH IMAGES
+###############################################################################
+
+  docker:
+    name: Build-and-Push-All-Images
+    runs-on: ubuntu-latest
+
+    env:
+      AWS_REGION: us-east-1
+
+    strategy:
+      matrix:
+        include:
+          - name: cake-backend-apache
+            folder: cake-backend-apache
+            repository: public.ecr.aws/w7d0i3d5/cake/backend
+
+          - name: cake-frontend-tomcat
+            folder: cake-frontend-tomcat
+            repository: public.ecr.aws/w7d0i3d5/cake/frontend
+
+          - name: cake-pda-nginx-1
+            folder: cake-pda-nginx-1
+            repository: public.ecr.aws/w7d0i3d5/cake/pda
+
+          - name: cake-scia-agent-nginx-2
+            folder: cake-scia-agent-nginx-2
+            repository: public.ecr.aws/w7d0i3d5/cake/scia-agent
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login Public ECR
+        run: |
+          aws ecr-public get-login-password --region $AWS_REGION \
+          | docker login --username AWS --password-stdin public.ecr.aws
+
+      - name: Build Image
+        run: docker build -t ${{ matrix.name }} ./${{ matrix.folder }}
+
+      - name: Tag Image
+        run: |
+          docker tag ${{ matrix.name }}:latest ${{ matrix.repository }}:latest
+          docker tag ${{ matrix.name }}:latest ${{ matrix.repository }}:${{ github.run_number }}
+
+      - name: Push Image
+        run: |
+          docker push ${{ matrix.repository }}:latest
+          docker push ${{ matrix.repository }}:${{ github.run_number }}
+
+###############################################################################
+# JOB 2 - ECS DEPLOY
+###############################################################################
+
+  deploy:
+    name: Create-SG-Task-Service-Deploy
+    runs-on: ubuntu-latest
+    needs: docker
+
+    env:
+      AWS_REGION: us-east-1
+      ECS_CLUSTER: my-ecs-cluster
+      VPC_ID: vpc-073aa5721affff3f6
+      SUBNET_1: subnet-0c31aad618d7831aa
+      SUBNET_2: subnet-0b7b9781a76282097
+
+    strategy:
+      matrix:
+        include:
+
+          - family: cake-backend-task
+            container: cake-backend
+            image: public.ecr.aws/w7d0i3d5/cake/backend:latest
+            service: cake-backend-task-service
+            port: 80
+            cpu: 512
+            memory: 1024
+            sg_name: my-sg-cake-backend
+
+          - family: cake-frontend-task
+            container: cake-frontend
+            image: public.ecr.aws/w7d0i3d5/cake/frontend:latest
+            service: cake-frontend-task-service
+            port: 8080
+            cpu: 1024
+            memory: 2048
+            sg_name: my-sg-cake-frontend
+
+          - family: cake-pda-task
+            container: cake-pda
+            image: public.ecr.aws/w7d0i3d5/cake/pda:latest
+            service: cake-pda-task-service
+            port: 80
+            cpu: 256
+            memory: 512
+            sg_name: my-sg-cake-pda
+
+          - family: cake-scia-agent-task
+            container: cake-scia-agent
+            image: public.ecr.aws/w7d0i3d5/cake/scia-agent:latest
+            service: cake-scia-agent-task-service
+            port: 80
+            cpu: 512
+            memory: 1024
+            sg_name: my-sg-cake-scia
+
+    steps:
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+###############################################################################
+# CHECK / CREATE SECURITY GROUP
+###############################################################################
+
+      - name: Check Security Group
+        id: sgcheck
+        run: |
+          SG_ID=$(aws ec2 describe-security-groups \
+            --filters Name=group-name,Values=${{ matrix.sg_name }} Name=vpc-id,Values=$VPC_ID \
+            --query 'SecurityGroups[0].GroupId' \
+            --output text)
+
+          if [ "$SG_ID" = "None" ]; then
+            echo "exists=false" >> $GITHUB_OUTPUT
+          else
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "sg_id=$SG_ID" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Security Group
+        if: steps.sgcheck.outputs.exists == 'false'
+        id: createsg
+        run: |
+          NEW_SG=$(aws ec2 create-security-group \
+            --group-name ${{ matrix.sg_name }} \
+            --description "${{ matrix.sg_name }}" \
+            --vpc-id $VPC_ID \
+            --query 'GroupId' \
+            --output text)
+
+          aws ec2 authorize-security-group-ingress \
+            --group-id $NEW_SG \
+            --protocol tcp \
+            --port ${{ matrix.port }} \
+            --cidr 0.0.0.0/0
+
+          echo "sg_id=$NEW_SG" >> $GITHUB_OUTPUT
+
+###############################################################################
+# FINAL SG VALUE
+###############################################################################
+
+      - name: Set SG ID
+        id: finalsg
+        run: |
+          if [ "${{ steps.sgcheck.outputs.exists }}" = "true" ]; then
+            echo "sg_id=${{ steps.sgcheck.outputs.sg_id }}" >> $GITHUB_OUTPUT
+          else
+            echo "sg_id=${{ steps.createsg.outputs.sg_id }}" >> $GITHUB_OUTPUT
+          fi
+
+###############################################################################
+# REGISTER TASK DEFINITION
+###############################################################################
+
+      - name: Register Task Definition
+        run: |
+          aws ecs register-task-definition \
+            --family ${{ matrix.family }} \
+            --network-mode awsvpc \
+            --requires-compatibilities FARGATE \
+            --cpu ${{ matrix.cpu }} \
+            --memory ${{ matrix.memory }} \
+            --runtime-platform operatingSystemFamily=LINUX,cpuArchitecture=X86_64 \
+            --container-definitions "[
+              {
+                \"name\":\"${{ matrix.container }}\",
+                \"image\":\"${{ matrix.image }}\",
+                \"essential\":true,
+                \"portMappings\":[
+                  {
+                    \"containerPort\":${{ matrix.port }},
+                    \"hostPort\":${{ matrix.port }},
+                    \"protocol\":\"tcp\",
+                    \"appProtocol\":\"http\"
+                  }
+                ]
+              }
+            ]"
+
+###############################################################################
+# CHECK SERVICE
+###############################################################################
+
+      - name: Check ECS Service
+        id: svc
+        run: |
+          COUNT=$(aws ecs describe-services \
+            --cluster $ECS_CLUSTER \
+            --services ${{ matrix.service }} \
+            --query 'failures | length(@)' \
+            --output text)
+
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
+
+###############################################################################
+# CREATE SERVICE
+###############################################################################
+
+      - name: Create ECS Service
+        if: steps.svc.outputs.count == '1'
+        run: |
+          aws ecs create-service \
+            --cluster $ECS_CLUSTER \
+            --service-name ${{ matrix.service }} \
+            --task-definition ${{ matrix.family }} \
+            --desired-count 1 \
+            --launch-type FARGATE \
+            --platform-version LATEST \
+            --network-configuration "awsvpcConfiguration={
+              subnets=[$SUBNET_1,$SUBNET_2],
+              securityGroups=[${{ steps.finalsg.outputs.sg_id }}],
+              assignPublicIp=ENABLED
+            }"
+
+###############################################################################
+# UPDATE SERVICE
+###############################################################################
+
+      - name: Update ECS Service
+        if: steps.svc.outputs.count == '0'
+        run: |
+          aws ecs update-service \
+            --cluster $ECS_CLUSTER \
+            --service ${{ matrix.service }} \
+            --task-definition ${{ matrix.family }} \
+            --force-new-deployment
