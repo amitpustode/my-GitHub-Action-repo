@@ -80,7 +80,7 @@ jobs:
 
     env:
       AWS_REGION: us-east-1
-      ECS_CLUSTER: my-ecs-cluster
+      ECS_CLUSTER: my-ecs-clusterq
       VPC_ID: vpc-073aa5721affff3f6
       SUBNET_ID_1: subnet-0c31aad618d7831aa
       SUBNET_ID_2: subnet-0b7b9781a76282097
